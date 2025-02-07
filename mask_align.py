@@ -97,7 +97,7 @@ class DifferentiableAffine(torch.nn.Module):
         grid = torch.nn.functional.affine_grid(self.matrix, x.size(), align_corners=False)
         return torch.nn.functional.grid_sample(x, grid, align_corners=False)
 
-def align_masks(mask, ref, return_transform=True, return_losses=False, lr=1e-2, max_iter=200):
+def align_masks(mask, ref, return_transform=True, return_losses=False, lr=1e-2, max_iter=200, seed_orientations=4):
     # resize to 2d
     if len(mask.shape) == 3: mask = mask[...,0]
     if len(ref.shape) == 3: ref = ref[..., 0]
@@ -116,12 +116,16 @@ def align_masks(mask, ref, return_transform=True, return_losses=False, lr=1e-2, 
     if mask.max() > 1.0: mask /= mask.max()
     if mask_resized.max() > 1.0: mask_resized /= mask_resized.max()
 
-    # define four transforms to start from
+    # define transforms to start from
+    # seed orientations defines evenly spaces intial start conditions between 0-360 degrees rotation
+    # a higher number is important to fit circular cores that are hard to descend on a correct alignment
     transform_allrot = torch.nn.ModuleList([
-        DifferentiableAffine(scale_w=1, scale_h=1, rot_1=0, rot_2=-0), # no rotation
-        DifferentiableAffine(scale_w=0, scale_h=0, rot_1=-1, rot_2=1), #  90 deg clockwise
-        DifferentiableAffine(scale_w=-1, scale_h=-1, rot_1=0, rot_2=0), # 180 degrees
-        DifferentiableAffine(scale_w=0, scale_h=0, rot_1=1, rot_2=-1)]) # 270 degrees clockwise
+        DifferentiableAffine(
+            scale_w=np.cos(np.deg2rad(theta)),
+            scale_h=np.cos(np.deg2rad(theta)),
+            rot_1=-1*np.sin(np.deg2rad(theta)),
+            rot_2=np.sin(np.deg2rad(theta)))
+        for theta in np.arange(0,360,360//seed_orientations)])
 
     # define optimisers
     optim = torch.optim.Adam(transform_allrot.parameters(), lr)
